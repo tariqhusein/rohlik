@@ -14,22 +14,12 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     @Query("UPDATE Product p SET p.stockAmount = p.stockAmount + :quantity WHERE p.id = :productId")
     void releaseStock(@Param("productId") Long productId, @Param("quantity") Integer quantity);
 
+    @Query("SELECT CASE WHEN p.stockAmount >= :quantity THEN true ELSE false END FROM Product p WHERE p.id = :productId")
+    boolean hasAvailableStock(@Param("productId") Long productId, @Param("quantity") Integer quantity);
+
     @Modifying
-    @Query("""
-            UPDATE Product p 
-            SET p.stockAmount = p.stockAmount - :quantity 
-            WHERE p.id = :productId 
-            AND p.stockAmount >= :quantity
-            """)
+    @Query("UPDATE Product p SET p.stockAmount = p.stockAmount - :quantity WHERE p.id = :productId AND p.stockAmount >= :quantity")
     int reserveStock(@Param("productId") Long productId, @Param("quantity") Integer quantity);
 
-    @Query("""
-            SELECT CASE 
-                WHEN p.stockAmount >= :quantity THEN true 
-                ELSE false 
-            END 
-            FROM Product p 
-            WHERE p.id = :productId
-            """)
-    boolean hasAvailableStock(@Param("productId") Long productId, @Param("quantity") Integer quantity);
+    boolean existsByName(String name);
 }

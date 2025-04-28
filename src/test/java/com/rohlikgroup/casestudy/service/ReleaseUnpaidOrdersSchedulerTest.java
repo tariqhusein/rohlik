@@ -25,125 +25,123 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+
 class ReleaseUnpaidOrdersSchedulerTest {
+    @Mock
+    private OrderRepository orderRepository;
+
+    @Mock
+    private ProductRepository productRepository;
+
+    @InjectMocks
+    private ReleaseUnpaidOrdersScheduler scheduler;
+
+    @Captor
+    private ArgumentCaptor<Order> orderCaptor;
+
+    private Order createTestOrder(Long id, LocalDateTime createdAt, OrderStatus status) {
+        Order order = new Order();
+        order.setId(id);
+        order.setStatus(status);
+        order.setCreatedAt(createdAt);
+
+        Product product = new Product();
+        product.setId(1L);
+
+        OrderItem item = new OrderItem();
+        item.setProduct(product);
+        item.setQuantity(2);
+        item.setOrder(order);
+
+        order.setOrderItems(List.of(item));
+        return order;
+    }
+
 
     @Test
-    void releaseUnpaidOrders() {
-        @Mock
-        private OrderRepository orderRepository;
+    void shouldNotProcessAnyOrdersWhenNoUnpaidOrdersExist() {
+        // Given
+        when(orderRepository.findUnpaidOrdersForCancellation(any(), eq(OrderStatus.PENDING)))
+                .thenReturn(Collections.emptyList());
 
-        @Mock
-        private ProductRepository productRepository;
+        // When
+        scheduler.releaseUnpaidOrders();
 
-        @InjectMocks
-        private ReleaseUnpaidOrdersScheduler scheduler;
+        // Then
+        verify(productRepository, never()).releaseStock(any(), any());
+        verify(orderRepository, never()).save(any());
+    }
 
-        @Captor
-        private ArgumentCaptor<Order> orderCaptor;
+    @Test
+    void shouldCancelUnpaidOrdersAndReleaseStock() {
+        // Given
+        LocalDateTime thirtyMinutesAgo = LocalDateTime.now().minusMinutes(30);
+        Order unpaidOrder = createTestOrder(1L, thirtyMinutesAgo, OrderStatus.PENDING);
 
-        private Order createTestOrder(Long id, LocalDateTime createdAt, OrderStatus status) {
-            Order order = new Order();
-            order.setId(id);
-            order.setStatus(status);
-            order.setCreatedAt(createdAt);
+        when(orderRepository.findUnpaidOrdersForCancellation(any(), eq(OrderStatus.PENDING)))
+                .thenReturn(List.of(unpaidOrder));
 
-            Product product = new Product();
-            product.setId(1L);
+        // When
+        scheduler.releaseUnpaidOrders();
 
-            OrderItem item = new OrderItem();
-            item.setProduct(product);
-            item.setQuantity(2);
-            item.setOrder(order);
+        // Then
+        verify(productRepository).releaseStock(eq(1L), eq(2));
+        verify(orderRepository).save(orderCaptor.capture());
 
-            order.setOrderItems(List.of(item));
-            return order;
+        Order savedOrder = orderCaptor.getValue();
+        assertThat(savedOrder.getStatus()).isEqualTo(OrderStatus.CANCELED);
+    }
+
+    @Test
+    void shouldContinueProcessingWhenOneOrderFails() {
+        // Given
+        LocalDateTime thirtyMinutesAgo = LocalDateTime.now().minusMinutes(30);
+        Order order1 = createTestOrder(1L, thirtyMinutesAgo, OrderStatus.PENDING);
+        Order order2 = createTestOrder(2L, thirtyMinutesAgo, OrderStatus.PENDING);
+
+        when(orderRepository.findUnpaidOrdersForCancellation(any(), eq(OrderStatus.PENDING)))
+                .thenReturn(List.of(order1, order2));
+
+        doThrow(new RuntimeException("Stock release failed"))
+                .when(productRepository)
+                .releaseStock(eq(1L), eq(2));
+
+        // When
+        scheduler.releaseUnpaidOrders();
+
+        // Then
+        verify(productRepository, times(2)).releaseStock(eq(1L), eq(2));
+        verify(orderRepository).save(orderCaptor.capture());
+
+        Order savedOrder = orderCaptor.getValue();
+        assertThat(savedOrder.getId()).isEqualTo(2L);
+        assertThat(savedOrder.getStatus()).isEqualTo(OrderStatus.CANCELED);
+    }
+
+    @Test
+    void shouldProcessMultipleOrdersSuccessfully() {
+        // Given
+        LocalDateTime thirtyMinutesAgo = LocalDateTime.now().minusMinutes(30);
+        List<Order> unpaidOrders = new ArrayList<>();
+        for (long i = 1; i <= 3; i++) {
+            unpaidOrders.add(createTestOrder(i, thirtyMinutesAgo, OrderStatus.PENDING));
         }
 
-        @Test
-        void shouldNotProcessAnyOrdersWhenNoUnpaidOrdersExist() {
-            // Given
-            when(orderRepository.findUnpaidOrdersForCancellation(any(), eq(OrderStatus.PENDING)))
-                    .thenReturn(Collections.emptyList());
+        when(orderRepository.findUnpaidOrdersForCancellation(any(), eq(OrderStatus.PENDING)))
+                .thenReturn(unpaidOrders);
 
-            // When
-            scheduler.releaseUnpaidOrders();
+        // When
+        scheduler.releaseUnpaidOrders();
 
-            // Then
-            verify(productRepository, never()).releaseStock(any(), any());
-            verify(orderRepository, never()).save(any());
-        }
+        // Then
+        verify(productRepository, times(3)).releaseStock(eq(1L), eq(2));
+        verify(orderRepository, times(3)).save(any());
 
-        @Test
-        void shouldCancelUnpaidOrdersAndReleaseStock() {
-            // Given
-            LocalDateTime thirtyMinutesAgo = LocalDateTime.now().minusMinutes(30);
-            Order unpaidOrder = createTestOrder(1L, thirtyMinutesAgo, OrderStatus.PENDING);
-
-            when(orderRepository.findUnpaidOrdersForCancellation(any(), eq(OrderStatus.PENDING)))
-                    .thenReturn(List.of(unpaidOrder));
-
-            // When
-            scheduler.releaseUnpaidOrders();
-
-            // Then
-            verify(productRepository).releaseStock(eq(1L), eq(2));
-            verify(orderRepository).save(orderCaptor.capture());
-
-            Order savedOrder = orderCaptor.getValue();
-            assertThat(savedOrder.getStatus()).isEqualTo(OrderStatus.CANCELED);
-        }
-
-        @Test
-        void shouldContinueProcessingWhenOneOrderFails() {
-            // Given
-            LocalDateTime thirtyMinutesAgo = LocalDateTime.now().minusMinutes(30);
-            Order order1 = createTestOrder(1L, thirtyMinutesAgo, OrderStatus.PENDING);
-            Order order2 = createTestOrder(2L, thirtyMinutesAgo, OrderStatus.PENDING);
-
-            when(orderRepository.findUnpaidOrdersForCancellation(any(), eq(OrderStatus.PENDING)))
-                    .thenReturn(List.of(order1, order2));
-
-            doThrow(new RuntimeException("Stock release failed"))
-                    .when(productRepository)
-                    .releaseStock(eq(1L), eq(2));
-
-            // When
-            scheduler.releaseUnpaidOrders();
-
-            // Then
-            verify(productRepository, times(2)).releaseStock(eq(1L), eq(2));
-            verify(orderRepository).save(orderCaptor.capture());
-
-            Order savedOrder = orderCaptor.getValue();
-            assertThat(savedOrder.getId()).isEqualTo(2L);
-            assertThat(savedOrder.getStatus()).isEqualTo(OrderStatus.CANCELED);
-        }
-
-        @Test
-        void shouldProcessMultipleOrdersSuccessfully() {
-            // Given
-            LocalDateTime thirtyMinutesAgo = LocalDateTime.now().minusMinutes(30);
-            List<Order> unpaidOrders = new ArrayList<>();
-            for (long i = 1; i <= 3; i++) {
-                unpaidOrders.add(createTestOrder(i, thirtyMinutesAgo, OrderStatus.PENDING));
-            }
-
-            when(orderRepository.findUnpaidOrdersForCancellation(any(), eq(OrderStatus.PENDING)))
-                    .thenReturn(unpaidOrders);
-
-            // When
-            scheduler.releaseUnpaidOrders();
-
-            // Then
-            verify(productRepository, times(3)).releaseStock(eq(1L), eq(2));
-            verify(orderRepository, times(3)).save(any());
-
-            verify(orderRepository).save(argThat(order ->
-                    order.getStatus() == OrderStatus.CANCELED &&
-                            order.getId() != null &&
-                            order.getId() >= 1 &&
-                            order.getId() <= 3
-            ));
-        }
+        verify(orderRepository).save(argThat(order ->
+                order.getStatus() == OrderStatus.CANCELED &&
+                        order.getId() != null &&
+                        order.getId() >= 1 &&
+                        order.getId() <= 3
+        ));
     }
 }
