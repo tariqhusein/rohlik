@@ -37,8 +37,15 @@ public class OrderServiceImpl implements OrderService {
             var product = productRepository.findById(item.getProduct().getId())
                     .orElseThrow(() -> new EntityNotFoundException("Product not found with id: " + item.getProduct().getId()));
             
-            if (!productRepository.reserveStock(product.getId(), item.getQuantity())) {
+            // First check if stock is available
+            if (!productRepository.hasAvailableStock(product.getId(), item.getQuantity())) {
                 throw new IllegalStateException("Insufficient stock for product: " + product.getId());
+            }
+            
+            // Then try to reserve it
+            int updatedRows = productRepository.reserveStock(product.getId(), item.getQuantity());
+            if (updatedRows == 0) {
+                throw new IllegalStateException("Failed to reserve stock for product: " + product.getId());
             }
             
             item.setOrder(order);
