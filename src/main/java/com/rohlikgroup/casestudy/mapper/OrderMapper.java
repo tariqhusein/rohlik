@@ -1,6 +1,8 @@
 package com.rohlikgroup.casestudy.mapper;
 
+import com.rohlikgroup.casestudy.dto.CreateOrderRequest;
 import com.rohlikgroup.casestudy.dto.OrderDto;
+import com.rohlikgroup.casestudy.dto.OrderItemRequest;
 import com.rohlikgroup.casestudy.entity.Order;
 import org.mapstruct.Mapper;
 
@@ -10,4 +12,6 @@ public interface OrderMapper {
     Order map(OrderDto orderDto);
 
     OrderDto map(Order order);
+
+    Order map(CreateOrderRequest request);
 }

@@ -2,6 +2,7 @@ package com.rohlikgroup.casestudy.service.impl;
 
 import com.rohlikgroup.casestudy.dto.CreateOrderRequest;
 import com.rohlikgroup.casestudy.dto.OrderDto;
+import com.rohlikgroup.casestudy.dto.OrderItemRequest;
 import com.rohlikgroup.casestudy.entity.Order;
 import com.rohlikgroup.casestudy.entity.OrderItem;
 import com.rohlikgroup.casestudy.entity.OrderStatus;
@@ -28,10 +29,25 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderDto createOrder(CreateOrderRequest orderRequest) {
-        //TODO: implement here
+        Order order = orderMapper.map(orderRequest);
+        order.setStatus(OrderStatus.PENDING);
 
-        return null;
+        // Validate and reserve stock for each order item
+        for (OrderItem item : order.getOrderItems()) {
+            var product = productRepository.findById(item.getProduct().getId())
+                    .orElseThrow(() -> new EntityNotFoundException("Product not found with id: " + item.getProduct().getId()));
+            
+            if (!productRepository.reserveStock(product.getId(), item.getQuantity())) {
+                throw new IllegalStateException("Insufficient stock for product: " + product.getId());
+            }
+            
+            item.setOrder(order);
+        }
+
+        order = orderRepository.save(order);
+        return orderMapper.map(order);
     }
+
 
     @Override
     @Transactional
